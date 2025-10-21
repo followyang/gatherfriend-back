@@ -3,6 +3,7 @@ package com.yang.gatherfriendsback.service;
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.yang.gatherfriendsback.model.domain.Team;
 import com.yang.gatherfriendsback.model.domain.User;
+import com.yang.gatherfriendsback.model.request.TeamMatchCarAddRequest;
 import com.yang.gatherfriendsback.model.request.TeamQueryRequest;
 import com.yang.gatherfriendsback.model.vo.TeamUserVO;
 import jakarta.servlet.http.HttpServletRequest;
@@ -64,5 +65,10 @@ public interface TeamService extends IService<Team> {
      * @return
      */
     boolean quitTeam(Long teamId, User loginUser);
+
+    /*
+    * 创建拼车队伍
+    * */
+    Long addCarTeam(TeamMatchCarAddRequest teamMatchCarAddRequest, HttpServletRequest request);
 }
 

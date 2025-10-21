@@ -7,6 +7,7 @@ import com.yang.gatherfriendsback.common.ResultUtils;
 import com.yang.gatherfriendsback.exception.BusinessException;
 import com.yang.gatherfriendsback.model.domain.Team;
 import com.yang.gatherfriendsback.model.domain.User;
+import com.yang.gatherfriendsback.model.request.TeamMatchCarAddRequest;
 import com.yang.gatherfriendsback.model.request.TeamQueryRequest;
 
 import com.yang.gatherfriendsback.model.vo.TeamUserVO;
@@ -88,6 +89,25 @@ public class TeamController {
         User loginUser = userService.getLoginUser(request);
         boolean result = teamService.quitTeam( teamId, loginUser);
         return ResultUtils.success(result);
+    }
+    //创建队伍
+    @Operation(summary = "拼车队伍添加")
+    @PostMapping("/addMatchCar")
+    public BaseResponse<Long> addMatchCar(@RequestBody TeamMatchCarAddRequest teamMatchCarAddRequest, HttpServletRequest request) {
+        if (teamMatchCarAddRequest == null) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+        Long result = teamService.addCarTeam(teamMatchCarAddRequest, request);
+        return ResultUtils.success( result);
+    }
+
+    @Operation(summary = "拼车队伍获取")
+    @GetMapping("/getMatchCar")
+    public BaseResponse<List<TeamUserVO>> getMatchTeam(@RequestBody TeamMatchCarAddRequest teamMatchCarAddRequest, HttpServletRequest request) {
+        User loginUser = userService.getLoginUser(request);
+       // List<TeamUserVO> result = teamService.getMatchTeam(loginUser);
+       // return ResultUtils.success(result);
+        return null;
     }
 
 }

@@ -10,6 +10,7 @@ import com.yang.gatherfriendsback.mapper.UserTeamMapper;
 import com.yang.gatherfriendsback.model.domain.Team;
 import com.yang.gatherfriendsback.model.domain.User;
 import com.yang.gatherfriendsback.model.domain.UserTeam;
+import com.yang.gatherfriendsback.model.request.TeamMatchCarAddRequest;
 import com.yang.gatherfriendsback.model.request.TeamQueryRequest;
 import com.yang.gatherfriendsback.model.vo.TeamUserVO;
 import com.yang.gatherfriendsback.model.vo.UserVO;
@@ -19,6 +20,8 @@ import com.yang.gatherfriendsback.service.UserService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.geo.Point;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
@@ -48,10 +51,13 @@ public class TeamServiceImpl extends  ServiceImpl<TeamMapper, Team>
        @Autowired
        private UserTeamMapper userTeamMapper;
 
+       @Autowired
+       private RedisTemplate<String, Object> redisTemplate;
+
         //创建队伍
         @Override
         @Transactional
-        public Long addTeam(Team team, HttpServletRequest  request) {
+        public Long addTeam( Team team, HttpServletRequest  request) {
             User loginUser = userService.getLoginUser(request);
 
             if (team == null) {
@@ -232,4 +238,53 @@ public class TeamServiceImpl extends  ServiceImpl<TeamMapper, Team>
         userTeamMapper.delete(queryWrapper);
         return true;
     }
+
+    /*
+    * 发布拼车队伍
+    * */
+    @Override
+    public Long addCarTeam(TeamMatchCarAddRequest teamMatchCarAddRequest, HttpServletRequest request) {
+        User loginUser = userService.getLoginUser(request);
+        Team team = new Team();
+
+        BeanUtils.copyProperties(teamMatchCarAddRequest,team);
+
+        if (team == null) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+        if (loginUser == null) {
+            throw new BusinessException(ErrorCode.NOT_LOGIN);
+        }
+        Long userId = loginUser.getId();
+        team.setUserId(userId);
+        team.setAvatar(loginUser.getAvatarUrl());
+
+        //插入数据返回id
+        teamMapper.insert(team);
+
+        //插入数据后 team.getId() 获取到插入数据的id
+        Long result = team.getId();
+
+        Integer userRole = loginUser.getUserRole();
+
+        UserTeam userTeam = new UserTeam();
+        //管理员具有所有权限，包括创建者，加入队伍者
+        if (userRole == UserConstant.ADMIN_ROLE) {
+            userTeam.setRole(2);
+        } else {
+            userTeam.setRole(1);
+        }
+        userTeam.setUserId(userId);
+        userTeam.setTeamId(result);
+        userTeam.setStatus(0);
+        userTeamMapper.insert(userTeam);
+        Double longitude = Double.parseDouble(teamMatchCarAddRequest.getLongitude());
+        Double latitude = Double.parseDouble(teamMatchCarAddRequest.getLatitude());
+
+        //添加队伍id到地理位置
+        redisTemplate.opsForGeo().add("carpool:hosts",new Point(longitude,latitude),result);
+        return result;
+    }
+
+
 }
