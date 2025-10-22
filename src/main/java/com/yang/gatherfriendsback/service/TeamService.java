@@ -70,5 +70,10 @@ public interface TeamService extends IService<Team> {
     * 创建拼车队伍
     * */
     Long addCarTeam(TeamMatchCarAddRequest teamMatchCarAddRequest, HttpServletRequest request);
+
+    /*
+    * 获取拼车队伍
+    * */
+    List<TeamUserVO> getMatchCar(String longitude, String latitude, User loginUser);
 }
 

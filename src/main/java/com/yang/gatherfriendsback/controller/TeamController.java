@@ -14,6 +14,7 @@ import com.yang.gatherfriendsback.model.vo.TeamUserVO;
 import com.yang.gatherfriendsback.service.TeamService;
 import com.yang.gatherfriendsback.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -101,13 +102,15 @@ public class TeamController {
         return ResultUtils.success( result);
     }
 
+
+
     @Operation(summary = "拼车队伍获取")
     @GetMapping("/getMatchCar")
-    public BaseResponse<List<TeamUserVO>> getMatchTeam(@RequestBody TeamMatchCarAddRequest teamMatchCarAddRequest, HttpServletRequest request) {
+    public BaseResponse<List<TeamUserVO>> getMatchCar(@RequestParam String longitude ,  @RequestParam String latitude , HttpServletRequest request) {
         User loginUser = userService.getLoginUser(request);
-       // List<TeamUserVO> result = teamService.getMatchTeam(loginUser);
-       // return ResultUtils.success(result);
-        return null;
+        List<TeamUserVO> result = teamService.getMatchCar( longitude, latitude, loginUser);
+
+        return ResultUtils.success( result);
     }
 
 }

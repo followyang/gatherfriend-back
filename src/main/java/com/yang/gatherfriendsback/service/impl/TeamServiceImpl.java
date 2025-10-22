@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.yang.gatherfriendsback.common.ErrorCode;
 import com.yang.gatherfriendsback.constant.UserConstant;
 import com.yang.gatherfriendsback.exception.BusinessException;
+import com.yang.gatherfriendsback.mapper.UserMapper;
 import com.yang.gatherfriendsback.mapper.UserTeamMapper;
 import com.yang.gatherfriendsback.model.domain.Team;
 import com.yang.gatherfriendsback.model.domain.User;
@@ -20,16 +21,22 @@ import com.yang.gatherfriendsback.service.UserService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.geo.Point;
+import org.springframework.data.geo.*;
+import org.springframework.data.redis.connection.RedisGeoCommands;
+import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.ScanOptions;
+import org.springframework.data.redis.core.ZSetOperations;
+import org.springframework.data.redis.domain.geo.GeoReference;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 
+import java.sql.Timestamp;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.List;
+import java.util.*;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -52,9 +59,17 @@ public class TeamServiceImpl extends  ServiceImpl<TeamMapper, Team>
        private UserTeamMapper userTeamMapper;
 
        @Autowired
+          private UserMapper userMapper;
+
+       @Autowired
        private RedisTemplate<String, Object> redisTemplate;
 
-        //创建队伍
+    private static final String GEO_KEY = "carpool:hosts";
+    private static final String EXPIRE_PREFIX = "carpool:hosts:expire:";
+
+
+
+    //创建队伍
         @Override
         @Transactional
         public Long addTeam( Team team, HttpServletRequest  request) {
@@ -278,13 +293,153 @@ public class TeamServiceImpl extends  ServiceImpl<TeamMapper, Team>
         userTeam.setTeamId(result);
         userTeam.setStatus(0);
         userTeamMapper.insert(userTeam);
+
         Double longitude = Double.parseDouble(teamMatchCarAddRequest.getLongitude());
         Double latitude = Double.parseDouble(teamMatchCarAddRequest.getLatitude());
+        LocalDateTime expireTime = teamMatchCarAddRequest.getExpireTime();
 
-        //添加队伍id到地理位置
-        redisTemplate.opsForGeo().add("carpool:hosts",new Point(longitude,latitude),result);
+        //添加地理位置房主，已teamId分类
+        addCarTeamLocation(longitude,latitude,result,expireTime);
+
         return result;
     }
 
+    /*
+    * 获取拼车匹配的队伍
+    * */
+    @Override
+    public List<TeamUserVO> getMatchCar(String longitude, String latitude, User loginUser) {
+        Double longitude1 = Double.parseDouble(longitude);
+        Double latitude1 = Double.parseDouble(latitude);
+
+        double radius = 1;//1km
+        List<Long> teamIds = findNearestHost(longitude1, latitude1, radius);
+
+        List<TeamUserVO> teamUserVOList = List.of();
+        if (teamIds.size() > 0 && teamIds != null) {
+            List<Team> teams = teamMapper.selectBatchIds(teamIds);
+            teamUserVOList = teams.stream().map(team -> {
+                TeamUserVO teamUserVO = new TeamUserVO();
+                BeanUtils.copyProperties(team, teamUserVO);
+                teamUserVO.setTags(team.getTags());
+
+                User user = userMapper.selectById(team.getUserId());
+                UserVO userVO = new UserVO();
+                BeanUtils.copyProperties(user, userVO);
+                userVO.setTags(user.getTags());
+                teamUserVO.setCreateUser(userVO);
+                teamUserVO.setCreateUser(userVO);
+                return teamUserVO;
+            }).toList();
+        }
+        return teamUserVOList ;
+    }
+
+
+
+
+    //添加队伍id到地理位置 设置过期时间 等业务
+    public  void addCarTeamLocation(Double longitude ,Double latitude ,Long teamId, LocalDateTime expireTime){
+
+        redisTemplate.opsForGeo().add("carpool:hosts",new Point(longitude,latitude),teamId);
+
+        //设置过期key
+        String expireKey = EXPIRE_PREFIX+teamId;
+        redisTemplate.opsForValue().set(expireKey,expireTime);
+
+        //设置过期key的过期时间
+        redisTemplate.expire(expireKey, Timestamp.valueOf(expireTime).getTime() - System.currentTimeMillis(), TimeUnit.MILLISECONDS);
+
+
+    }
+   /**
+     * 查找最近的房主（自动过滤已过期的成员）
+     */
+    public List<Long> findNearestHost(double userLon, double userLat, double radius) {
+
+        // 2. 定义搜索范围：以用户位置为中心，radius 公里为半径
+        Distance distance = new Distance(radius, Metrics.KILOMETERS);
+
+        // 3. 执行地理搜索：获取范围内的队伍，按距离升序，最多返回10条
+        GeoResults<RedisGeoCommands.GeoLocation<Object>> geoResults = redisTemplate.opsForGeo().search(
+                GEO_KEY,
+                GeoReference.fromCoordinate(userLon, userLat),
+                distance,
+                RedisGeoCommands.GeoRadiusCommandArgs.newGeoSearchArgs().limit(20)
+        );
+
+        // 遍历搜索结果，找到第一个未过期的队伍
+        List<Long> teamIds = new ArrayList<>();
+
+        // 4. 处理搜索结果：过滤过期队伍，返回最近的有效队伍
+        if (geoResults == null || geoResults.getContent().isEmpty()|| geoResults.getContent().size() == 0) {
+            return List.of(); // 范围内无任何队伍
+        }
+
+                for (GeoResult<RedisGeoCommands.GeoLocation<Object>> result : geoResults.getContent()) {
+            RedisGeoCommands.GeoLocation<Object> location = result.getContent();
+            // 修复类型转换问题：直接转换为Long而不是String
+            Long teamId;
+            Object nameObj = location.getName();
+            
+            // 根据实际类型进行转换
+            if (nameObj instanceof String) {
+                try {
+                    teamId = Long.parseLong((String) nameObj);
+                } catch (NumberFormatException e) {
+                    // 无效的teamId格式，从GEO中清理并继续
+                    redisTemplate.opsForGeo().remove(GEO_KEY, nameObj);
+                    continue;
+                }
+            } else if (nameObj instanceof Long) {
+                teamId = (Long) nameObj;
+            } else {
+                // 不支持的类型，从GEO中清理并继续
+                redisTemplate.opsForGeo().remove(GEO_KEY, nameObj);
+                continue;
+            }
+
+            // 检查队伍是否过期：判断过期标记key是否存在
+            String expireKey = EXPIRE_PREFIX + teamId;
+            if (redisTemplate.hasKey(expireKey)) {
+                // 未过期，直接返回该队伍（因已按距离排序，第一个有效即为最近）
+                teamIds.add(teamId);
+            } else {
+                // 已过期，从GEO中清理该队伍，继续检查下一个
+                redisTemplate.opsForGeo().remove(GEO_KEY, nameObj);
+            }
+        }
+
+        // 5. 所有搜索到的队伍都已过期，返回
+        return teamIds;
+}
+    /**
+     * 定时清理已过期的房主
+     */
+    @Scheduled(cron = "0 0 0 * * ?")
+    public void cleanExpiredHosts() {
+        System.out.println("开始清理已过期的队伍房主...");
+        // 使用 ZSCAN 遍历有序集合（GEO 底层的 Sorted Set）
+        Cursor<ZSetOperations.TypedTuple<Object>> cursor = redisTemplate.opsForZSet().scan(GEO_KEY, ScanOptions.NONE);
+        while (cursor.hasNext()) {
+            ZSetOperations.TypedTuple<Object> tuple = cursor.next();
+            Long hostId = (Long) tuple.getValue();
+            System.out.println("Redis中的值: " + hostId + "，类型: " + hostId.getClass().getName());
+            String expireKey = EXPIRE_PREFIX + hostId;
+
+            if (!redisTemplate.hasKey(expireKey)) {
+                redisTemplate.opsForGeo().remove(GEO_KEY, hostId);
+                teamMapper.deleteById(hostId);
+                /*Team team = teamMapper.selectById(hostId);
+                System.out.println( team.getId());
+                team.setIsDelete(1);
+                int rows =  teamMapper.updateById( team);
+                System.out.println("更新前的team: " + team);
+                System.out.println("更新队伍ID: " + hostId + "，影响行数: " + rows);*/
+            }
+
+
+        }
+    }
 
 }

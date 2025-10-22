@@ -8,26 +8,26 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-/**
- * Redisson 配置
- */
 @Configuration
-@ConfigurationProperties(prefix = "spring.redis")
+@ConfigurationProperties(prefix = "spring.data.redis") // 修改前缀以匹配application.yml中的配置
 @Data
 public class RedissonConfig {
 
     private String host;
-
-    private String port;
+    private Integer port; // 改为Integer类型
+    private String password;
+    private Integer database = 0; // 添加默认值
 
     @Bean
     public RedissonClient redissonClient() {
-        // 1. 创建配置
+
         Config config = new Config();
         String redisAddress = String.format("redis://%s:%s", host, port);
-        config.useSingleServer().setAddress(redisAddress).setDatabase(3);
-        // 2. 创建实例
-        RedissonClient redisson = Redisson.create(config);
-        return redisson;
+
+        config.useSingleServer()
+                .setAddress(redisAddress)
+                .setDatabase(database != null ? database : 0)
+                .setPassword(password);
+        return Redisson.create(config);
     }
 }
