@@ -5,12 +5,14 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.yang.gatherfriendsback.common.ErrorCode;
 import com.yang.gatherfriendsback.constant.UserConstant;
+import com.yang.gatherfriendsback.enums.TeamStatusEnum;
 import com.yang.gatherfriendsback.exception.BusinessException;
 import com.yang.gatherfriendsback.mapper.UserMapper;
 import com.yang.gatherfriendsback.mapper.UserTeamMapper;
 import com.yang.gatherfriendsback.model.domain.Team;
 import com.yang.gatherfriendsback.model.domain.User;
 import com.yang.gatherfriendsback.model.domain.UserTeam;
+import com.yang.gatherfriendsback.model.request.TeamJoinRequest;
 import com.yang.gatherfriendsback.model.request.TeamMatchCarAddRequest;
 import com.yang.gatherfriendsback.model.request.TeamQueryRequest;
 import com.yang.gatherfriendsback.model.vo.TeamUserVO;
@@ -18,7 +20,11 @@ import com.yang.gatherfriendsback.model.vo.UserVO;
 import com.yang.gatherfriendsback.service.TeamService;
 import com.yang.gatherfriendsback.mapper.TeamMapper;
 import com.yang.gatherfriendsback.service.UserService;
+import com.yang.gatherfriendsback.service.UserTeamService;
 import jakarta.servlet.http.HttpServletRequest;
+import lombok.extern.slf4j.Slf4j;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.geo.*;
@@ -46,6 +52,7 @@ import java.util.stream.Collectors;
 */
 
 @Service
+@Slf4j
 public class TeamServiceImpl extends  ServiceImpl<TeamMapper, Team>
             implements TeamService {
 
@@ -59,20 +66,26 @@ public class TeamServiceImpl extends  ServiceImpl<TeamMapper, Team>
        private UserTeamMapper userTeamMapper;
 
        @Autowired
-          private UserMapper userMapper;
+       private UserTeamService userTeamService;
+
+       @Autowired
+       private UserMapper userMapper;
+
+       @Autowired
+       private RedissonClient redissonClient;
 
        @Autowired
        private RedisTemplate<String, Object> redisTemplate;
 
-    private static final String GEO_KEY = "carpool:hosts";
-    private static final String EXPIRE_PREFIX = "carpool:hosts:expire:";
+       private static final String GEO_KEY = "carpool:hosts";
+       private static final String EXPIRE_PREFIX = "carpool:hosts:expire:";
 
 
 
     //创建队伍
         @Override
         @Transactional
-        public Long addTeam( Team team, HttpServletRequest  request) {
+        public Long createTeam(Team team, HttpServletRequest request) {
             User loginUser = userService.getLoginUser(request);
 
             if (team == null) {
@@ -81,6 +94,7 @@ public class TeamServiceImpl extends  ServiceImpl<TeamMapper, Team>
             if (loginUser == null) {
                 throw new BusinessException(ErrorCode.NOT_LOGIN);
             }
+
             Long userId = loginUser.getId();
             team.setUserId(userId);
             team.setAvatar(loginUser.getAvatarUrl());
@@ -219,23 +233,77 @@ public class TeamServiceImpl extends  ServiceImpl<TeamMapper, Team>
         if(teamId == null){
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
-        Long userId = loginUser.getId();
-        QueryWrapper<UserTeam> queryWrapper = new QueryWrapper<>();
-        queryWrapper.eq("teamId",teamId).eq("userId",userId);
-
-        if(userTeamMapper.selectOne(queryWrapper) != null){
-            throw new BusinessException(ErrorCode.PARAMS_ERROR,"不能重复加入");
+        Team team = this.getById(teamId);
+        if (team == null) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "队伍不存在");
+        }
+        LocalDateTime expireTime = team.getExpireTime();
+        if (expireTime!=null&&expireTime.isBefore(LocalDateTime.now())) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "队伍已过期");
+        }
+        Integer status = team.getStatus();
+        TeamStatusEnum teamStatusEnum = TeamStatusEnum.getEnumByValue(status);
+        if (teamStatusEnum.PRIVATE.equals(teamStatusEnum)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "禁止加入私有队伍");
         }
 
-        UserTeam userTeam = new UserTeam();
-        userTeam.setUserId(userId);
-        userTeam.setTeamId(teamId);
-        userTeam.setStatus(0);
-        userTeam.setJoinTime(new Date());
-        userTeamMapper.insert(userTeam);
+
+        //该用户已加入的队伍数量 数据库查询所以放到下面，减少查询时间
+        Long userId = loginUser.getId();
+        QueryWrapper<UserTeam> userTeamQueryWrapper = new QueryWrapper<>();
+        userTeamQueryWrapper.eq("userId", userId);
+        long hasJoinNum = userTeamService.count(userTeamQueryWrapper);
+        if (hasJoinNum > 5) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "最多创建和加入5个队伍");
+        }
+
+        RLock lock = redissonClient.getLock("gather:lock:join_team");
+        while(true){
+            try {
+                if(lock.tryLock(0,-1,TimeUnit.MILLISECONDS)){
+                //不能重复加入已加入的队伍
+                userTeamQueryWrapper = new QueryWrapper<>();
+                userTeamQueryWrapper.eq("userId", userId);
+                userTeamQueryWrapper.eq("teamId", teamId);
+                long hasUserJoinTeam = userTeamService.count(userTeamQueryWrapper);
+                if (hasUserJoinTeam > 0) {
+                    throw new BusinessException(ErrorCode.PARAMS_ERROR, "用户已加入该队伍");
+                }
+                //已加入队伍的人数
+                userTeamQueryWrapper = new QueryWrapper<>();
+                userTeamQueryWrapper.eq("teamId", teamId);
+                long teamHasJoinNum = userTeamService.count(userTeamQueryWrapper);
+                if (teamHasJoinNum >= team.getMaxNum()) {
+                    throw new BusinessException(ErrorCode.PARAMS_ERROR, "队伍已满");
+                }
 
 
-        return true;
+                QueryWrapper<UserTeam> queryWrapper = new QueryWrapper<>();
+                queryWrapper.eq("teamId",teamId).eq("userId",userId);
+
+                if(userTeamMapper.selectOne(queryWrapper) != null){
+                    throw new BusinessException(ErrorCode.PARAMS_ERROR,"不能重复加入");
+                }
+
+                UserTeam userTeam = new UserTeam();
+                userTeam.setUserId(userId);
+                userTeam.setTeamId(teamId);
+                userTeam.setStatus(0);
+                userTeam.setJoinTime(new Date());
+                userTeamMapper.insert(userTeam);
+                return true;
+            }
+            } catch (InterruptedException e) {
+                log.error("join_team error");
+                throw new RuntimeException(e);
+            }
+            finally {
+                //释放掉自己的锁
+                if(lock.isHeldByCurrentThread()){
+                    lock.unlock();
+                }
+            }
+        }
     }
 
     @Override
@@ -270,6 +338,7 @@ public class TeamServiceImpl extends  ServiceImpl<TeamMapper, Team>
         if (loginUser == null) {
             throw new BusinessException(ErrorCode.NOT_LOGIN);
         }
+
         Long userId = loginUser.getId();
         team.setUserId(userId);
         team.setAvatar(loginUser.getAvatarUrl());
@@ -315,6 +384,8 @@ public class TeamServiceImpl extends  ServiceImpl<TeamMapper, Team>
         double radius = 1;//1km
         List<Long> teamIds = findNearestHost(longitude1, latitude1, radius);
 
+        log.info("teamId{}",!teamIds.isEmpty()?teamIds.size():null);
+
         List<TeamUserVO> teamUserVOList = List.of();
         if (teamIds.size() > 0 && teamIds != null) {
             List<Team> teams = teamMapper.selectBatchIds(teamIds);
@@ -334,8 +405,6 @@ public class TeamServiceImpl extends  ServiceImpl<TeamMapper, Team>
         }
         return teamUserVOList ;
     }
-
-
 
 
     //添加队伍id到地理位置 设置过期时间 等业务
@@ -376,7 +445,7 @@ public class TeamServiceImpl extends  ServiceImpl<TeamMapper, Team>
             return List.of(); // 范围内无任何队伍
         }
 
-                for (GeoResult<RedisGeoCommands.GeoLocation<Object>> result : geoResults.getContent()) {
+        for (GeoResult<RedisGeoCommands.GeoLocation<Object>> result : geoResults.getContent()) {
             RedisGeoCommands.GeoLocation<Object> location = result.getContent();
             // 修复类型转换问题：直接转换为Long而不是String
             Long teamId;
@@ -416,7 +485,7 @@ public class TeamServiceImpl extends  ServiceImpl<TeamMapper, Team>
     /**
      * 定时清理已过期的房主
      */
-    @Scheduled(cron = "0 0 0 * * ?")
+    @Scheduled(cron = "0 * * * * ?")
     public void cleanExpiredHosts() {
         System.out.println("开始清理已过期的队伍房主...");
         // 使用 ZSCAN 遍历有序集合（GEO 底层的 Sorted Set）
@@ -430,12 +499,6 @@ public class TeamServiceImpl extends  ServiceImpl<TeamMapper, Team>
             if (!redisTemplate.hasKey(expireKey)) {
                 redisTemplate.opsForGeo().remove(GEO_KEY, hostId);
                 teamMapper.deleteById(hostId);
-                /*Team team = teamMapper.selectById(hostId);
-                System.out.println( team.getId());
-                team.setIsDelete(1);
-                int rows =  teamMapper.updateById( team);
-                System.out.println("更新前的team: " + team);
-                System.out.println("更新队伍ID: " + hostId + "，影响行数: " + rows);*/
             }
 
 

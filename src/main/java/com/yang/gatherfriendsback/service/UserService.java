@@ -66,5 +66,7 @@ public interface UserService extends IService<User> {
      * @return
      */
     List< User> searchUser(UserQueryRequest userQueryRequest , User loginUser);
+
+    List<User> matchUsers(long num, User loginUser);
 }
 

@@ -42,7 +42,7 @@ public class TeamController {
         if (team == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
-        Long result = teamService.addTeam(team, request);
+        Long result = teamService.createTeam(team, request);
         return ResultUtils.success( result);
     }
 

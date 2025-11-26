@@ -3,11 +3,13 @@ package com.yang.gatherfriendsback.service;
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.yang.gatherfriendsback.model.domain.Team;
 import com.yang.gatherfriendsback.model.domain.User;
+import com.yang.gatherfriendsback.model.request.TeamJoinRequest;
 import com.yang.gatherfriendsback.model.request.TeamMatchCarAddRequest;
 import com.yang.gatherfriendsback.model.request.TeamQueryRequest;
 import com.yang.gatherfriendsback.model.vo.TeamUserVO;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
@@ -20,15 +22,21 @@ import java.util.List;
 
 @Service
 public interface TeamService extends IService<Team> {
-        /**
-         * 创建队伍
-         * @param team
-         * @param  request
-         * @return
-         */
-        Long addTeam(Team team, HttpServletRequest  request);
 
-        /**
+
+    /**
+     * @param team:
+    	 * @param request:
+      * @return Long
+     * @author liuya
+     * @description 创建队伍
+     * @date 2025/11/19 下午3:48
+     */
+
+        @Transactional
+        Long createTeam(Team team, HttpServletRequest request);
+
+    /**
          * 查询队伍
          * @param teamQueryRequest
          * @param loginUser
@@ -75,5 +83,7 @@ public interface TeamService extends IService<Team> {
     * 获取拼车队伍
     * */
     List<TeamUserVO> getMatchCar(String longitude, String latitude, User loginUser);
+
+
 }
 
