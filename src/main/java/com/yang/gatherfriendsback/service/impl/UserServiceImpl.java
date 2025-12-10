@@ -2,6 +2,7 @@ package com.yang.gatherfriendsback.service.impl;
 
 
 import cn.hutool.core.lang.Pair;
+import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
@@ -220,19 +221,28 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         queryWrapper.ne("isDelete", 1).ne("id",loginUser.getId());
 
         //如果username和tags都为空.查询20条数据
-        if ((username==null||username.equals(""))&& (tags==null||tags.size()==0)) {
+        if (StrUtil.isBlank(username) && (tags==null||tags.isEmpty())) {
 
             IPage<User> page = new Page<>(pageNum, pageSize);
             IPage<User> userPage = userMapper.selectPage(page, queryWrapper);
             return userPage.getRecords();
         }
         //如果username 不为空
-        if (username.equals("")&&username!=null) {
+        if (StrUtil.isNotBlank(username)) {
             queryWrapper.like("username", username);
         }
         //如果tags 不为空
-        if (tags!=null&&tags.size()!=0) {
-           queryWrapper.like("tags", tags);
+        if (tags != null && !tags.isEmpty()) {
+            queryWrapper.and(wrapper -> {
+                for (int i = 0; i < tags.size(); i++) {
+                    String tag = tags.get(i);
+                    wrapper.like("tags", tag);
+                    // 最后一个标签不需要加or
+                    if (i < tags.size() - 1) {
+                        wrapper.or();
+                    }
+                }
+            });
         }
         IPage<User> page = new Page<>(pageNum, pageSize);
         IPage<User> userPage = userMapper.selectPage(page, queryWrapper);
@@ -248,7 +258,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
      * @description TODO
      * @date 2025/11/19 下午3:34
      */
-    public List<User> matchUsers(long num, User loginUser) {
+    public List<User> matchUsers(Long num, User loginUser) {
         QueryWrapper<User> queryWrapper = new QueryWrapper<>();
         queryWrapper.select("id", "tags");
         queryWrapper.isNotNull("tags");

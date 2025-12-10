@@ -103,4 +103,13 @@ public class UserController {
         return ResultUtils.success(userList);
     }
 
+    //匹配用户
+    @Operation(summary = "匹配用户")
+    @PostMapping("/match")
+    public BaseResponse<List<User>> matchUsers(@RequestParam Long num, HttpServletRequest request) {
+        User loginUser = userService.getLoginUser(request);
+        List<User> matchUsers = userService.matchUsers(num, loginUser);
+        return ResultUtils.success(matchUsers);
+    }
+
 }
