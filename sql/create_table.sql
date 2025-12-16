@@ -6,7 +6,7 @@ use
     gatherfriends;
 
 -- 用户表
-create table if not exists gatherfirends.user
+create table if not exists gatherfriends.user
 (
     id           bigint auto_increment comment 'id'
         primary key,
@@ -27,7 +27,7 @@ create table if not exists gatherfirends.user
     isOnline     tinyint                            null comment '用户是否在线 0：下线，1：上线'
 );
 
-INSERT INTO gatherfirends.user (username, userAccount, avatarUrl, gender, userPassword, profile, phone, email, userStatus, createTime, updateTime, isDelete, userRole, tags, isOnline)
+INSERT INTO gatherfriends.user (username, userAccount, avatarUrl, gender, userPassword, profile, phone, email, userStatus, createTime, updateTime, isDelete, userRole, tags, isOnline)
 VALUES
     ('旭', 'aaaaa', 'https://ts1.tc.mm.bing.net/th/id/OIP-C.XS6EtBzAmWWa31cfFvcx6QHaHa?w=131&h=180&c=8&rs=1&qlt=90&o=6&cb=12&dpr=1.3&pid=3.1&rm=2', 2, 'df22ca4b212cd00566e37834224d1648', '热爱跑步和摄影，记录生活中的美好瞬间', '13800138001', 'aaaaa@example.com', 0, '2025-10-02 18:05:20', '2025-10-16 16:00:29', 0, 1, '[]', NULL),
     ('哇哈哈哈', 'bbbbb', 'https://ts1.tc.mm.bing.net/th/id/OIP-C.Bk9P-YAQk0Dw0fGgNiRkGgAAAA?w=150&h=108&c=7&bgcl=e80b49&r=0&o=6&cb=12&dpr=1.3&pid=13.1', 1, 'df22ca4b212cd00566e37834224d1648', '运动达人，喜欢跑步、摄影和篮球', '13800138002', 'bbbbb@example.com', 0, '2025-10-02 18:38:22', '2025-10-14 20:50:10', 0, 0, '["跑步","摄影","篮球"]', NULL),
@@ -48,7 +48,7 @@ VALUES
 
 
 -- 队伍表
-create table if not exists gatherfirends.team
+create table if not exists gatherfriends.team
 (
     id          bigint auto_increment comment 'id'
         primary key,
@@ -67,7 +67,7 @@ create table if not exists gatherfirends.team
 )
     comment '队伍';
 
-INSERT INTO gatherfirends.team (name, description, maxNum, expireTime, userId, status, password, tags, avatar, createTime, updateTime, isDelete)
+INSERT INTO gatherfriends.team (name, description, maxNum, expireTime, userId, status, password, tags, avatar, createTime, updateTime, isDelete)
 VALUES
     ('周末篮球局', '每周六下午2点体育馆打球，新手友好', 10, '2025-12-31 23:59:59', 1, 0, NULL, '["篮球","羽毛球","乒乓球","跑步","健身","骑行"]', 'https://ts3.tc.mm.bing.net/th/id/OIP-C.R86aJ5pc3Fu1oGj9boecuAAAAA?cb=12&rs=1&pid=ImgDetMain&o=7&rm=3', '2025-10-06 00:22:35', '2025-10-14 20:48:34', 0),
     ('读书分享会', '每月一次线下读书交流，分享阅读心得', 15, '2026-01-15 00:00:00', 2, 0, NULL, '["阅读", "文化", "交流"]', 'https://ts1.tc.mm.bing.net/th/id/OIP-C.Bk9P-YAQk0Dw0fGgNiRkGgAAAA?w=150&h=108&c=7&bgcl=e80b49&r=0&o=6&cb=12&dpr=1.3&pid=13.1', '2025-10-06 00:22:35', '2025-10-14 20:48:34', 0),
@@ -114,7 +114,7 @@ VALUES
     ('aada', 'adawd', 3, '2025-11-23 22:30:00', 1, 0, NULL, '["拼车"]', 'https://ts1.tc.mm.bing.net/th/id/OIP-C.XS6EtBzAmWWa31cfFvcx6QHaHa?w=131&h=180&c=8&rs=1&qlt=90&o=6&cb=12&dpr=1.3&pid=3.1&rm=2', '2025-11-23 17:23:38', '2025-11-23 17:23:38', 0),
     ('aaaa', 'lalalalala', 3, '2025-11-25 18:42:00', 1, 0, NULL, '["拼车"]', 'https://ts1.tc.mm.bing.net/th/id/OIP-C.XS6EtBzAmWWa31cfFvcx6QHaHa?w=131&h=180&c=8&rs=1&qlt=90&o=6&cb=12&dpr=1.3&pid=3.1&rm=2', '2025-11-25 10:37:38', '2025-11-25 10:37:38', 0);
 
-create table if not exists gatherfirends.user_team
+create table if not exists gatherfriends.user_team
 (
     id       bigint auto_increment comment '关联ID'
         primary key,
@@ -126,7 +126,7 @@ create table if not exists gatherfirends.user_team
 )
     comment '用户-队伍关联表';
 
-INSERT INTO gatherfirends.user_team (userId, teamId, role, status, joinTime)
+INSERT INTO gatherfriends.user_team (userId, teamId, role, status, joinTime)
 VALUES
     (2, 1, 0, 0, '2025-10-06 09:00:00'),
     (16, 1, 0, 0, '2025-10-06 14:30:00'),
@@ -217,3 +217,18 @@ create table tag
 
 create index idx_userId
     on tag (userId);
+
+
+create table if not exists gatherfirends.ai_message
+(
+    id              bigint unsigned                      not null comment '主键ID'
+        primary key,
+    conversation_id varchar(64)                          not null comment '会话ID',
+    message_type    varchar(20)                          not null comment '消息类型',
+    content         text                                 not null comment '消息内容',
+    metadata        text                                 not null comment '元数据',
+    create_time     datetime   default CURRENT_TIMESTAMP null comment '创建时间',
+    update_time     datetime   default CURRENT_TIMESTAMP null on update CURRENT_TIMESTAMP comment '更新时间',
+    is_delete       tinyint(1) default 0                 not null comment '是否删除 0-未删除 1-已删除'
+)
+    comment '聊天消息表';

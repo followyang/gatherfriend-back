@@ -4,6 +4,12 @@ spring:
     active: dev
   application:
     name: gatherfriends-back
+  ai:
+    dashscope:
+      chat:
+        options:
+          model: qwen-plus
+      api-key: sk-1d86094764d645afab75b3b4ca7f0956
   # DataSource Config
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
